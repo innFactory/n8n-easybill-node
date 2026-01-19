@@ -1312,7 +1312,7 @@ export class EasyBill implements INodeType {
 						creditorName: 'creditor_name',
 						debitorBic: 'debitor_bic',
 						debitorAddressLine1: 'debitor_address_line_1',
-						debitorAddressLine2: 'debitor_address_line2',
+						debitorAddressLine2: 'debitor_address_line_2',
 						debitorCountry: 'debitor_country',
 						remittanceInformation: 'remittance_information',
 						type: 'type',
