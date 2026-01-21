@@ -42,7 +42,7 @@ export const sepaPaymentFields: INodeProperties[] = [
 		name: 'page',
 		type: 'number',
 		default: 1,
-		description: 'Page number to return',
+		description: 'Starting page number for pagination',
 		displayOptions: {
 			show: {
 				resource: ['sepaPayment'],

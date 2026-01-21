@@ -1350,32 +1350,61 @@ export class EasyBill implements INodeType {
 				/* ╚══════════════════════════╝ */
 				if (operation === 'getSepaPayments') {
 					const limit = this.getNodeParameter('limit', i) as number | undefined;
-					const page = this.getNodeParameter('page', i) as number | undefined;
-					const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
-					const qs: IDataObject = {};
+					const startPage = this.getNodeParameter('page', i, 1) as number;
+					const additionalFields = this.getNodeParameter('additionalFields', i, {}) as IDataObject;
+					const baseQuery: IDataObject = {};
 
 					if (limit !== undefined) {
-						qs.limit = limit;
-					}
-					if (page !== undefined) {
-						qs.page = page;
+						baseQuery.limit = limit;
 					}
 					if (additionalFields && Object.keys(additionalFields).length > 0) {
-						Object.assign(qs, additionalFields);
+						Object.assign(baseQuery, additionalFields);
 					}
 
-					const options: IHttpRequestOptions = {
-						headers: {
-							Accept: 'application/json',
-						},
-						method: 'GET',
-						url: `/sepa-payments`,
-						json: true,
-						qs,
-					};
+					let nextPage = startPage ?? 1;
+					let previousPage: number | undefined;
+					let continuePagination = true;
 
-					responseData = await easyBillApiRequest.call(this, options);
-					returnData.push(responseData);
+					while (continuePagination) {
+						const qs: IDataObject = { ...baseQuery };
+						if (nextPage !== undefined) {
+							qs.page = nextPage;
+						}
+
+						const options: IHttpRequestOptions = {
+							headers: {
+								Accept: 'application/json',
+							},
+							method: 'GET',
+							url: `/sepa-payments`,
+							json: true,
+							qs,
+						};
+
+						responseData = await easyBillApiRequest.call(this, options);
+						returnData.push(responseData);
+
+						const paginationInfo = responseData as {
+							page?: number;
+							pages?: number;
+						};
+						const currentPage = paginationInfo.page;
+						const totalPages = paginationInfo.pages;
+
+						// Continue requesting pages until the API reports that the last page has been reached.
+						if (
+							typeof currentPage !== 'number' ||
+							typeof totalPages !== 'number' ||
+							totalPages === 0 ||
+							currentPage >= totalPages ||
+							currentPage === previousPage
+						) {
+							continuePagination = false;
+						} else {
+							previousPage = currentPage;
+							nextPage = currentPage + 1;
+						}
+					}
 				}
 				/* ╔════════════════════════╗ */
 				/* ║  CREATE SEPA PAYMENT   ║ */
