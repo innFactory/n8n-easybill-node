@@ -803,7 +803,6 @@ export class EasyBill implements INodeType {
 				/* ║  CREATE CUSTOMER GROUP  ║ */
 				/* ╚═════════════════════════╝ */
 				if (operation === 'createCustomerGroup') {
-					// Hole die Pflichtparameter und optionale Felder
 					const name = this.getNodeParameter('name', i) as string;
 					const number = this.getNodeParameter('number', i) as number;
 					const description = this.getNodeParameter('description', i) as string | undefined;
@@ -1349,27 +1348,25 @@ export class EasyBill implements INodeType {
 				/* ║  GET SEPA PAYMENTS LIST  ║ */
 				/* ╚══════════════════════════╝ */
 				if (operation === 'getSepaPayments') {
-					const limit = this.getNodeParameter('limit', i) as number | undefined;
-					const startPage = this.getNodeParameter('page', i, 1) as number;
 					const additionalFields = this.getNodeParameter('additionalFields', i, {}) as IDataObject;
-					const baseQuery: IDataObject = {};
+					// set maximum limit (aka page size) to reduce number of HTTP requests
+					const baseQuery: IDataObject = { limit: 1000 };
 
-					if (limit !== undefined) {
-						baseQuery.limit = limit;
-					}
 					if (additionalFields && Object.keys(additionalFields).length > 0) {
 						Object.assign(baseQuery, additionalFields);
 					}
 
-					let nextPage = startPage ?? 1;
+					let nextPage = 1;
 					let previousPage: number | undefined;
-					let continuePagination = true;
+					let aggregatedResponse: IDataObject | undefined;
+					const aggregatedItems: IDataObject[] = [];
+					let apiReportedTotal: number | undefined;
+					let apiReportedPageLimit: number | undefined;
+					let apiReportedPages: number | undefined;
 
-					while (continuePagination) {
-						const qs: IDataObject = { ...baseQuery };
-						if (nextPage !== undefined) {
-							qs.page = nextPage;
-						}
+					// Accumulates SEPA payment pages until the EasyBill API signals completion.
+					while (true) {
+						const qs: IDataObject = { ...baseQuery, page: nextPage };
 
 						const options: IHttpRequestOptions = {
 							headers: {
@@ -1382,28 +1379,66 @@ export class EasyBill implements INodeType {
 						};
 
 						responseData = await easyBillApiRequest.call(this, options);
-						returnData.push(responseData);
+						const responseObject = responseData as IDataObject;
+						const items = Array.isArray(responseObject.items)
+							? (responseObject.items as IDataObject[])
+							: [];
 
-						const paginationInfo = responseData as {
-							page?: number;
-							pages?: number;
-						};
-						const currentPage = paginationInfo.page;
-						const totalPages = paginationInfo.pages;
-
-						// Continue requesting pages until the API reports that the last page has been reached.
-						if (
-							typeof currentPage !== 'number' ||
-							typeof totalPages !== 'number' ||
-							totalPages === 0 ||
-							currentPage >= totalPages ||
-							currentPage === previousPage
-						) {
-							continuePagination = false;
-						} else {
-							previousPage = currentPage;
-							nextPage = currentPage + 1;
+						if (!aggregatedResponse) {
+							aggregatedResponse = { ...responseObject };
 						}
+
+						if (typeof responseObject.total === 'number') {
+							apiReportedTotal = responseObject.total;
+						}
+						if (typeof responseObject.limit === 'number') {
+							apiReportedPageLimit = responseObject.limit;
+						}
+
+						aggregatedItems.push(...items);
+
+						const currentPage =
+							typeof responseObject.page === 'number' ? responseObject.page : nextPage;
+
+						if (typeof responseObject.pages === 'number') {
+							apiReportedPages = responseObject.pages;
+						}
+
+						const reachedApiTotal =
+							apiReportedTotal !== undefined && aggregatedItems.length >= apiReportedTotal;
+						const reachedLastPageByReport =
+							apiReportedPages !== undefined && currentPage >= apiReportedPages;
+						const noMoreItems = items.length === 0;
+						const stuckOnSamePage = previousPage !== undefined && currentPage === previousPage;
+
+						if (reachedApiTotal || reachedLastPageByReport || noMoreItems || stuckOnSamePage) {
+							break;
+						}
+
+						previousPage = currentPage;
+						nextPage = currentPage + 1;
+					}
+
+					if (aggregatedResponse) {
+						const effectivePageSize = apiReportedPageLimit ?? 100;
+						const totalItemsReturned = aggregatedItems.length;
+						const resultTotal = apiReportedTotal ?? totalItemsReturned;
+
+						aggregatedResponse.items = aggregatedItems;
+						aggregatedResponse.total = resultTotal;
+						aggregatedResponse.page = 1;
+						aggregatedResponse.limit = apiReportedPageLimit ?? totalItemsReturned;
+
+						if (apiReportedPages !== undefined) {
+							aggregatedResponse.pages = apiReportedPages;
+						} else if (effectivePageSize > 0) {
+							aggregatedResponse.pages = Math.max(
+								1,
+								Math.ceil(totalItemsReturned / effectivePageSize),
+							);
+						}
+
+						returnData.push(aggregatedResponse);
 					}
 				}
 				/* ╔════════════════════════╗ */
