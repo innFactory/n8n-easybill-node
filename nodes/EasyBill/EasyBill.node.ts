@@ -803,6 +803,7 @@ export class EasyBill implements INodeType {
 				/* ║  CREATE CUSTOMER GROUP  ║ */
 				/* ╚═════════════════════════╝ */
 				if (operation === 'createCustomerGroup') {
+					// Hole die Pflichtparameter und optionale Felder
 					const name = this.getNodeParameter('name', i) as string;
 					const number = this.getNodeParameter('number', i) as number;
 					const description = this.getNodeParameter('description', i) as string | undefined;
