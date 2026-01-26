@@ -22,35 +22,6 @@ export const sepaPaymentFields: INodeProperties[] = [
 	/* ║  GET SEPA PAYMENTS  ║ */
 	/* ╚══════════════════════╝ */
 	{
-		displayName: 'Limit',
-		name: 'limit',
-		type: 'number',
-		typeOptions: {
-			minValue: 1,
-		},
-		default: 50,
-		description: 'Max number of results to return',
-		displayOptions: {
-			show: {
-				resource: ['sepaPayment'],
-				operation: ['getSepaPayments'],
-			},
-		},
-	},
-	{
-		displayName: 'Page',
-		name: 'page',
-		type: 'number',
-		default: 1,
-		description: 'Page number to return',
-		displayOptions: {
-			show: {
-				resource: ['sepaPayment'],
-				operation: ['getSepaPayments'],
-			},
-		},
-	},
-	{
 		displayName: 'Additional Fields',
 		name: 'additionalFields',
 		type: 'collection',

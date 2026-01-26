@@ -1349,33 +1349,98 @@ export class EasyBill implements INodeType {
 				/* ║  GET SEPA PAYMENTS LIST  ║ */
 				/* ╚══════════════════════════╝ */
 				if (operation === 'getSepaPayments') {
-					const limit = this.getNodeParameter('limit', i) as number | undefined;
-					const page = this.getNodeParameter('page', i) as number | undefined;
-					const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
-					const qs: IDataObject = {};
+					const additionalFields = this.getNodeParameter('additionalFields', i, {}) as IDataObject;
+					// set maximum limit (aka page size) to reduce number of HTTP requests
+					const baseQuery: IDataObject = { limit: 1000 };
 
-					if (limit !== undefined) {
-						qs.limit = limit;
-					}
-					if (page !== undefined) {
-						qs.page = page;
-					}
 					if (additionalFields && Object.keys(additionalFields).length > 0) {
-						Object.assign(qs, additionalFields);
+						Object.assign(baseQuery, additionalFields);
 					}
 
-					const options: IHttpRequestOptions = {
-						headers: {
-							Accept: 'application/json',
-						},
-						method: 'GET',
-						url: `/sepa-payments`,
-						json: true,
-						qs,
-					};
+					let nextPage = 1;
+					let previousPage: number | undefined;
+					let aggregatedResponse: IDataObject | undefined;
+					const aggregatedItems: IDataObject[] = [];
+					let apiReportedTotal: number | undefined;
+					let apiReportedPageLimit: number | undefined;
+					let apiReportedPages: number | undefined;
 
-					responseData = await easyBillApiRequest.call(this, options);
-					returnData.push(responseData);
+					// Accumulates SEPA payment pages until the EasyBill API signals completion.
+					while (true) {
+						const qs: IDataObject = { ...baseQuery, page: nextPage };
+
+						const options: IHttpRequestOptions = {
+							headers: {
+								Accept: 'application/json',
+							},
+							method: 'GET',
+							url: `/sepa-payments`,
+							json: true,
+							qs,
+						};
+
+						responseData = await easyBillApiRequest.call(this, options);
+						const responseObject = responseData as IDataObject;
+						const items = Array.isArray(responseObject.items)
+							? (responseObject.items as IDataObject[])
+							: [];
+
+						if (!aggregatedResponse) {
+							aggregatedResponse = { ...responseObject };
+						}
+
+						if (typeof responseObject.total === 'number') {
+							apiReportedTotal = responseObject.total;
+						}
+						if (typeof responseObject.limit === 'number') {
+							apiReportedPageLimit = responseObject.limit;
+						}
+
+						aggregatedItems.push(...items);
+
+						const currentPage =
+							typeof responseObject.page === 'number' ? responseObject.page : nextPage;
+
+						if (typeof responseObject.pages === 'number') {
+							apiReportedPages = responseObject.pages;
+						}
+
+						const reachedApiTotal =
+							apiReportedTotal !== undefined && aggregatedItems.length >= apiReportedTotal;
+						const reachedLastPageByReport =
+							apiReportedPages !== undefined && currentPage >= apiReportedPages;
+						const noMoreItems = items.length === 0;
+						const stuckOnSamePage = previousPage !== undefined && currentPage === previousPage;
+
+						if (reachedApiTotal || reachedLastPageByReport || noMoreItems || stuckOnSamePage) {
+							break;
+						}
+
+						previousPage = currentPage;
+						nextPage = currentPage + 1;
+					}
+
+					if (aggregatedResponse) {
+						const effectivePageSize = apiReportedPageLimit ?? 100;
+						const totalItemsReturned = aggregatedItems.length;
+						const resultTotal = apiReportedTotal ?? totalItemsReturned;
+
+						aggregatedResponse.items = aggregatedItems;
+						aggregatedResponse.total = resultTotal;
+						aggregatedResponse.page = 1;
+						aggregatedResponse.limit = apiReportedPageLimit ?? totalItemsReturned;
+
+						if (apiReportedPages !== undefined) {
+							aggregatedResponse.pages = apiReportedPages;
+						} else if (effectivePageSize > 0) {
+							aggregatedResponse.pages = Math.max(
+								1,
+								Math.ceil(totalItemsReturned / effectivePageSize),
+							);
+						}
+
+						returnData.push(aggregatedResponse);
+					}
 				}
 				/* ╔════════════════════════╗ */
 				/* ║  CREATE SEPA PAYMENT   ║ */
